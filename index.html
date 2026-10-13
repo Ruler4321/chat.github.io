@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8"><title>P2P</title>
+    <style>
+        body { background: #121214; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .phone { width: 300px; background: #1a1a1e; border-radius: 20px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .hidden { display: none !important; }
+        .flex { display: flex; justify-content: space-around; align-items: center; gap: 5px; }
+        .msg { padding: 6px 10px; border-radius: 8px; max-width: 85%; word-break: break-all; margin-top: 5px; }
+        .msg img, .msg video { max-width: 100%; max-height: 120px; border-radius: 5px; display: block; }
+        .msg .tg-circle { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 2px solid #0f8; }
+        .msg.my { background: #0f8; color: #000; align-self: flex-end; }
+        .msg.rem { background: #3a3a42; color: #fff; align-self: flex-start; }
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div style="text-align:center; margin-bottom:20px;">Моё имя: <input type="text" id="myNum" value="Абонент1" style="width:100px; background:#000; color:#0f8; border:1px solid #0f8; text-align:center;"></div>
+        <div id="dialBox">
+            <input type="text" id="disp" placeholder="Имя собеседника..." style="width:93%; height:40px; background:#26262b; border:1px solid #444; color:#fff; text-align:center; border-radius:10px; outline:none; margin-bottom:15px;">
+            <button style="background:#0f8; color:#000; width:100%; border-radius:10px; font-size:16px; font-weight:bold; padding:10px; border:none; cursor:pointer;" onclick="makeCall()">Вызвать 📞</button>
+        </div>
+        <div id="callBox" class="hidden">
+            <div style="text-align:center; color:#aaa; margin:15px 0;"><h2 id="remNum">...</h2><div id="state">Вызов...</div><div id="time" class="hidden" style="color:#0f8; font-weight:bold;">00:00</div></div>
+            <div class="flex">
+                <button style="background:#f47; width:50px; height:50px; border-radius:50%; border:none; color:#fff; font-size:20px; cursor:pointer;" onclick="send('hangup', call.rem, call.id); reset()">❌</button>
+                <button id="btnAns" class="hidden" style="background:#2d7; width:50px; height:50px; border-radius:50%; border:none; color:#fff; font-size:20px; cursor:pointer;" onclick="send('accept', call.rem, call.id); startTalk()">📞</button>
+            </div>
+            <div id="chatBox" class="hidden" style="background:#26262b; border-radius:10px; padding:10px; display:flex; flex-direction:column; height:320px; margin-top:15px;">
+                <div id="recBox" class="hidden" style="text-align:center; padding:5px; background:#ff4757; color:#fff; border-radius:5px; font-size:12px; margin-bottom:5px; font-weight:bold;">🔴 Запись кружочка...</div>
+                <div id="chatMsgs" style="flex:1; overflow-y:auto; font-size:13px; display:flex; flex-direction:column; gap:8px;"></div>
+                <div class="flex" style="margin-top:5px;">
+                    <input type="file" id="fileInp" class="hidden" onchange="upFile()">
+                    <button style="background:#3a3a42; color:#fff; border:none; padding:6px 8px; border-radius:5px; cursor:pointer;" onclick="getEl('fileInp').click()">📎</button>
+                    <button id="btnCircle" style="background:#00a2ff; color:#fff; border:none; padding:6px 8px; border-radius:5px; cursor:pointer;" onclick="tkCirc()">📷</button>
+                    <input type="text" id="chatInp" placeholder="Текст..." onkeydown="if(event.key==='Enter') sendMsg()" style="flex:1; background:#121214; border:1px solid #444; color:#fff; padding:6px; border-radius:5px; outline:none; min-width:0;">
+                    <button style="background:#0f8; border:none; color:#000; padding:6px 10px; border-radius:5px; font-weight:bold; cursor:pointer;" onclick="sendMsg()">➡</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        let call = null, timer = null, sec = 0, rec = null, chunks = [], isRec = false, strRef = null;
+        const getEl = id => document.getElementById(id), ch = new BroadcastChannel('p2p_phone_net');
+        const send = (action, to, id, ex = {}) => ch.postMessage({ action, from: getEl('myNum').value.trim(), to, id, ...ex });
+
+        function makeCall() {
+            const n = getEl('disp').value.trim(); if (!n || n === getEl('myNum').value.trim()) return alert("Неверное имя");
+            call = { id: Math.random().toString(36).substr(2, 5), rem: n }; showCall(call.rem, "Гудки...", false); send('dial', call.rem, call.id);
+        }
+        function showCall(num, txt, showAns) {
+            getEl('dialBox').classList.add('hidden'); getEl('callBox').classList.remove('hidden');
+            getEl('remNum').innerText = num; getEl('state').innerText = txt; getEl('btnAns').classList.toggle('hidden', !showAns);
+        }
+        function startTalk() {
+            getEl('state').innerText = "Разговор..."; getEl('btnAns').classList.add('hidden'); getEl('time').classList.remove('hidden'); getEl('chatBox').classList.remove('hidden');
+            getEl('chatMsgs').innerHTML = ''; sec = 0; clearInterval(timer);
+            timer = setInterval(() => { sec++; getEl('time').innerText = `${Math.floor(sec/60).toString().padStart(2,'0')}:${(sec%60).toString().padStart(2,'0')}`; }, 1000);
+        }
+        function sendMsg() {
+            const t = getEl('chatInp').value.trim(); if (!t || !call) return;
+            appendMsg({ text: t }, 'my'); send('msg', call.rem, call.id, { text: t }); getEl('chatInp').value = '';
+        }
+        async function tkCirc() {
+            if (!call) return; const b = getEl('btnCircle');
+            if (!isRec) {
+                try {
+                    chunks = []; const s = await navigator.mediaDevices.getUserMedia({ video: { width: 200, height: 200 }, audio: true }); strRef = s;
+                    rec = new MediaRecorder(s); rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+                    rec.onstop = () => {
+                        const blob = new Blob(chunks, { type: 'video/mp4' }), obj = { name: 'c.mp4', type: 'video/mp4', data: blob, isCircle: true };
+                        appendMsg({ file: { ...obj, data: URL.createObjectURL(blob) } }, 'my'); send('msg', call.rem, call.id, { file: obj });
+                        strRef.getTracks().forEach(t => t.stop());
+                    };
+                    rec.start(); isRec = true; b.style.background = '#ff4757'; b.innerText = '⏹'; getEl('recBox').classList.remove('hidden');
+                } catch (err) { 
+                    alert('Ошибка камеры! Если файл открыт как file:///, перенесите его на локальный хост или проверяйте через ПК браузер с поддержкой медиа.'); 
+                }
+            } else { rec.stop(); isRec = false; b.style.background = '#00a2ff'; b.innerText = '📷'; getEl('recBox').classList.add('hidden'); }
+        }
+        function upFile() {
+            const f = getEl('fileInp').files[0]; if (!f || !call) return;
+            const obj = { name: f.name, type: f.type, data: f, isImg: f.type.startsWith('image/'), isVid: f.type.startsWith('video/') };
+            appendMsg({ file: { ...obj, data: URL.createObjectURL(f) } }, 'my'); send('msg', call.rem, call.id, { file: obj }); getEl('fileInp').value = '';
+        }
+        function appendMsg(m, side) {
+            const box = getEl('chatMsgs'), div = document.createElement('div'); div.className = `msg ${side}`; if (m.text) div.innerText = m.text;
+            if (m.file) {
+                let src = m.file.data instanceof Blob ? URL.createObjectURL(new Blob([m.file.data], { type: m.file.type })) : m.file.data;
+                if (m.file.isCircle) { const v = document.createElement('video'); v.src = src; v.controls = true; v.className = 'tg-circle'; div.appendChild(v); }
+                else if (m.file.isImg) { const i = document.createElement('img'); i.src = src; div.appendChild(i); }
+                else if (m.file.isVid) { const v = document.createElement('video'); v.src = src; v.controls = true; div.appendChild(v); }
+                else { div.innerText = `📁 ${m.file.name} `; const a = document.createElement('a'); a.href = src; a.download = m.file.name; a.style.color = '#0f8'; a.innerText = '[Скачать]'; div.appendChild(a); }
+            }
+            box.appendChild(div); box.scrollTop = box.scrollHeight;
+        }
+        function reset() {
+            clearInterval(timer); call = null; getEl('disp').value = ''; if(strRef) strRef.getTracks().forEach(t => t.stop());
+            getEl('dialBox').classList.remove('hidden'); getEl('callBox').classList.add('hidden'); getEl('time').classList.add('hidden'); getEl('chatBox').classList.add('hidden');
+        }
+        ch.onmessage = e => {
+            const d = e.data; if (d.to !== getEl('myNum').value.trim()) return;
+            if (d.action === 'dial') { if (call) return send('hangup', d.from, d.id); call = { id: d.id, rem: d.from }; showCall(d.from, "Входящий вызов", true); }
+            if (d.action === 'accept' && call?.id === d.id) startTalk(); if (d.action === 'hangup' && call?.id === d.id) reset(); if (d.action === 'msg' && call?.id === d.id) appendMsg(d, 'rem');
+        };
+    </script>
+</body>
+</html>
